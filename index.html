@@ -96,6 +96,34 @@
     display:flex;align-items:center;justify-content:center;opacity:.45;touch-action:none;}
   #superBtn.ready{opacity:1;animation:pulse 1s infinite;}
   @keyframes pulse{50%{box-shadow:0 0 0 8px rgba(255,210,63,.25);}}
+  #skillBtn{position:absolute;right:max(160px,calc(env(safe-area-inset-right) + 158px));
+    bottom:max(168px,calc(env(safe-area-inset-bottom) + 140px));
+    width:60px;height:60px;border-radius:50%;pointer-events:auto;border:3px solid #6fd3ff;
+    background:radial-gradient(circle at 50% 35%,#cdf2ff,#3aa0e0);font-size:26px;
+    display:flex;align-items:center;justify-content:center;opacity:.5;touch-action:none;}
+  #skillBtn.ready{opacity:1;}
+  #skillBtn .cd{position:absolute;font-family:'Bungee';font-size:15px;color:#06243a;}
+  .skillRow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .skillCard{flex:1;min-width:96px;background:#142436;border:2px solid #28415c;border-radius:14px;padding:8px;cursor:pointer;text-align:center}
+  .skillCard.sel{border-color:#6fd3ff;box-shadow:0 0 0 3px rgba(111,211,255,.25)}
+  .skillCard .ic{font-size:24px}
+  .skillCard .sn{font-family:'Jua';font-size:13px;margin-top:2px}
+  .skillCard .sd{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.25}
+
+  /* Quests */
+  .qsec{font-family:'Bungee';font-size:15px;margin:14px 0 8px;color:var(--accent);}
+  .qcard{background:#142436;border:1px solid #28415c;border-radius:14px;padding:10px 12px;margin-bottom:8px;}
+  .qcard.qdone{border-color:var(--good);opacity:.85;}
+  .qn{font-family:'Jua';font-size:14px;margin-bottom:6px;}
+  .qbarwrap{height:8px;background:#0a1521;border-radius:5px;overflow:hidden;}
+  .qbar{height:100%;border-radius:5px;background:linear-gradient(90deg,#3ddc97,#ffd23f);}
+  .qmeta{font-size:11px;color:var(--muted);margin-top:5px;}
+  #questBody{width:min(560px,100%);max-height:62vh;overflow-y:auto;padding:4px;}
+  .coinPill{font-family:'Jua';background:var(--panel);border:1px solid #2a4660;border-radius:12px;padding:6px 14px;font-size:16px;}
+  #toast{position:fixed;left:50%;top:14%;transform:translateX(-50%) translateY(-12px);z-index:50;
+    background:rgba(13,27,42,.95);border:1px solid var(--good);color:#fff;font-family:'Jua';font-size:14px;
+    padding:10px 18px;border-radius:14px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;box-shadow:0 8px 24px rgba(0,0,0,.5);}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
   /* Result */
   .resultTitle{font-family:'Bungee';font-size:clamp(32px,11vw,84px);}
@@ -108,12 +136,14 @@
 <body>
 <div id="app">
   <canvas id="cv"></canvas>
+  <div id="toast"></div>
 
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div class="topbar">
       <div class="badge alive" id="scoreBadge">생존 <b>1</b></div>
       <div class="badge" id="charBadge">캐릭터</div>
+      <div class="badge" id="skillBadge" style="color:#6fd3ff">스킬</div>
     </div>
     <div class="pill" id="hintPill"></div>
   </div>
@@ -121,8 +151,9 @@
   <!-- Mobile touch controls -->
   <div id="touch">
     <div id="stickL" class="stick"><div class="knob"></div><div class="lbl">이동</div></div>
-    <div id="stickR" class="stick"><div class="knob"></div><div class="lbl">조준 · 발사</div></div>
+    <div id="stickR" class="stick"><div class="knob"></div><div class="lbl">조준 → 떼면 발사</div></div>
     <div id="superBtn">SUPER</div>
+    <div id="skillBtn"><span class="ic">✨</span><span class="cd"></span></div>
   </div>
 
   <!-- Main menu -->
@@ -130,7 +161,22 @@
     <div class="logo">BRAWL ARENA<small>TOP-DOWN ACTION SHOOTER</small></div>
     <p class="tip" id="ctrlTip"></p>
     <button class="btn alt" id="toSelect">게임 시작 ▶</button>
-    <p class="tip" style="font-size:12px;opacity:.7">연습 모드 · 봇 AI 포함 · 멀티플레이 연동 지점 내장</p>
+    <button class="btn" id="toQuests" style="font-size:16px;padding:10px 22px">🎯 퀘스트</button>
+    <p class="tip" style="font-size:12px;opacity:.7">연습 모드 · 봇 AI 포함 · 일일/주간 퀘스트</p>
+  </div>
+
+  <!-- Quests -->
+  <div id="quests" class="overlay hidden">
+    <div class="select-wrap" style="width:min(560px,100%)">
+      <div class="select-head">
+        <h2>퀘스트</h2>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span class="coinPill" id="coinView">💎 0</span>
+          <button class="btn" id="questBack" style="padding:8px 18px;font-size:15px">← 뒤로</button>
+        </div>
+      </div>
+      <div id="questBody"></div>
+    </div>
   </div>
 
   <!-- Character select -->
@@ -142,6 +188,8 @@
       </div>
       <div class="grid" id="charGrid"></div>
       <div class="detail" id="charDetail"></div>
+      <div class="tip" style="text-align:left;margin-top:10px"><b>스킬 장착</b> — 1개 선택 (게임 중 <span class="kbd">E</span>/버튼)</div>
+      <div class="skillRow" id="skillRow"></div>
       <div id="modeRow" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"></div>
       <div class="tip" id="modeDesc" style="margin-top:8px;text-align:left"></div>
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
@@ -261,12 +309,13 @@ resize();
    3. INPUT  (PC: 키보드+마우스 / 모바일: 듀얼 조이스틱)
    공통 출력: input.move{x,y}, input.aim{x,y}, input.firing, input.superReq
    ---------------------------------------------------------------- */
-const input = { move:{x:0,y:0}, aim:{x:1,y:0}, firing:false, superReq:false, hasAim:false };
+const input = { move:{x:0,y:0}, aim:{x:1,y:0}, firing:false, fireOnce:false, superReq:false, skillReq:false, hasAim:false };
 const keys = {};
 
 if(!IS_TOUCH){
   addEventListener('keydown', e=>{ keys[e.key.toLowerCase()]=true;
-    if(e.key===' '||e.key.toLowerCase()==='q'){ input.superReq=true; e.preventDefault(); } });
+    if(e.key===' '||e.key.toLowerCase()==='q'){ input.superReq=true; e.preventDefault(); }
+    if(e.key.toLowerCase()==='e'){ input.skillReq=true; e.preventDefault(); } });
   addEventListener('keyup',   e=>{ keys[e.key.toLowerCase()]=false; });
   let mx=VW/2, my=VH/2;
   cv.addEventListener('mousemove', e=>{ mx=e.clientX; my=e.clientY; });
@@ -290,14 +339,19 @@ if(!IS_TOUCH){
 } else {
   document.getElementById('touch').style.display='block';
   setupStick('stickL', v=>{ input.move.x=v.x; input.move.y=v.y; });
+  // 우측 스틱: 누르는 동안 조준만, 손을 떼면 발사 (브롤스타즈 방식)
   setupStick('stickR', v=>{
       const m=Math.hypot(v.x,v.y);
-      if(m>0.12){ input.aim.x=v.x/m; input.aim.y=v.y/m; input.hasAim=true; input.firing=true; }
-    }, ()=>{ input.firing=false; }, true);
+      if(m>0.12){ input.aim.x=v.x/m; input.aim.y=v.y/m; input.hasAim=true; }
+    }, ()=>{ input.fireOnce=true; });
   const sb=document.getElementById('superBtn');
   const sbStart = e=>{ e.preventDefault(); input.superReq=true; };
   sb.addEventListener('touchstart', sbStart, {passive:false});
   sb.addEventListener('mousedown', sbStart);
+  const kb=document.getElementById('skillBtn');
+  const kbStart = e=>{ e.preventDefault(); input.skillReq=true; };
+  kb.addEventListener('touchstart', kbStart, {passive:false});
+  kb.addEventListener('mousedown', kbStart);
   window.__readPC = ()=>{};
 }
 
@@ -409,6 +463,27 @@ let mode=MODES.showdown, teamScore=[0,0], zoneHold=[0,0], zone=null;
 const TEAM_COLOR=["#ffd23f","#ff5c8a"];
 const enemyOf=(a,b)=>a.team!==b.team;
 
+// ===== 스킬 시스템 (캐릭터당 3개, 1개 장착) =====
+const SKILLS={
+  dash:  {name:"대시",   icon:"💨", cd:6,  fn:"dash",  dist:240},
+  blink: {name:"점멸",   icon:"🌀", cd:7,  fn:"dash",  dist:320},
+  heal:  {name:"치유",   icon:"❤️", cd:9,  fn:"heal",  amount:1500},
+  shield:{name:"방벽",   icon:"🛡️", cd:8,  fn:"shield",amount:1900, dur:4},
+  speed: {name:"질주",   icon:"⚡", cd:8,  fn:"speed", mul:1.6, dur:3.5},
+  rage:  {name:"분노",   icon:"🔥", cd:10, fn:"rage",  mul:1.6, dur:4},
+  quake: {name:"충격파", icon:"💢", cd:9,  fn:"quake", radius:155, dmg:850, knock:120},
+  mine:  {name:"지뢰",   icon:"💣", cd:8,  fn:"mine",  dmg:1500, radius:75},
+  cloak: {name:"은신",   icon:"👻", cd:11, fn:"cloak", dur:3},
+};
+const SKILL_DESC={dash:"전방 순간이동",heal:"체력 회복",shield:"보호막 생성",speed:"이동속도 증가",rage:"공격력 증가",quake:"광역 폭발+넉백",mine:"지뢰 설치",cloak:"잠시 은신"};
+const CHAR_SKILLS={
+  vega:["dash","heal","quake"], goliath:["shield","quake","rage"], hawk:["blink","cloak","speed"],
+  twin:["dash","rage","quake"], dash:["blink","speed","mine"], boom:["mine","quake","shield"],
+  medic:["heal","shield","speed"], rapid:["speed","rage","mine"], guard:["shield","heal","quake"],
+  spirit:["blink","cloak","heal"],
+};
+let mines=[];
+
 function makeEntity(cfg, x, y, isPlayer, isBot, name, team){
   return {
     cfg, x, y, vx:0, vy:0, radius:cfg.radius, color:cfg.color, name,
@@ -416,13 +491,15 @@ function makeEntity(cfg, x, y, isPlayer, isBot, name, team){
     fireCd:0, aim:{x:1,y:0}, alive:true, isPlayer, isBot,
     team:team||0, spawn:{x,y}, respawnT:0,
     superCharge:0, superMax:cfg.super.charge, shield:0, shieldT:0,
-    aiState:{t:0, strafe:1, retarget:0, targetId:null}, flash:0, recoil:0
+    aiState:{t:0, strafe:1, retarget:0, targetId:null}, flash:0, recoil:0,
+    skillId:null, skillCd:0, speedMul:1, speedT:0, dmgMul:1, dmgT:0, cloakT:0,
+    animPhase:Math.random()*6, moving:false
   };
 }
 
 function startMatch(charId, modeKey){
   buildArena();
-  entities=[]; projectiles=[]; particles=[]; floaters=[]; gameOver=false;
+  entities=[]; projectiles=[]; particles=[]; floaters=[]; mines=[]; gameOver=false;
   teamScore=[0,0]; zoneHold=[0,0];
   mode = MODES[modeKey] || MODES.showdown;
   zone = mode.zone ? {x:WORLD.w*0.5, y:WORLD.h*0.5, r:ZONE_R} : null;
@@ -448,6 +525,12 @@ function startMatch(charId, modeKey){
     entities.push(makeEntity(pick(), W*0.66, H*0.18, false,true,"FOE 2", 1));
   }
 
+  questAdd('matches_played',1);
+  // 스킬 장착: 플레이어 = 선택값, 봇 = 캐릭터 스킬 중 랜덤
+  const plist=CHAR_SKILLS[charId]||["dash"];
+  player.skillId = plist.includes(equippedSkill)?equippedSkill:plist[0];
+  entities.forEach(b=>{ if(b.isBot){ const l=CHAR_SKILLS[b.cfg.id]||["dash"]; b.skillId=l[(Math.random()*l.length)|0]; } });
+
   cam.x=player.x; cam.y=player.y;
   Net.onMatchStart(charId);
   running=true; lastT=performance.now();
@@ -456,7 +539,7 @@ function startMatch(charId, modeKey){
   document.getElementById('hintPill').textContent =
     mode===MODES.duel ? "코어존을 점령하거나 라이벌을 3회 격추!" :
     mode===MODES.link ? "팀원과 붙어 전류 링크로 적을 지져라! 팀 7점!" :
-    (IS_TOUCH ? "마지막까지 생존하세요!" : "WASD 이동 · 마우스 조준/클릭 · Q 슈퍼");
+    (IS_TOUCH ? "우 스틱 드래그로 조준, 떼면 발사!" : "WASD 이동 · 마우스 조준/클릭 · Q 슈퍼 · E 스킬");
   updateScoreboard();
   requestAnimationFrame(loop);
 }
@@ -516,7 +599,7 @@ function spawnAttack(e, a, isSuper){
     projectiles.push({
       x:e.x+Math.cos(ang)*e.radius, y:e.y+Math.sin(ang)*e.radius,
       vx:Math.cos(ang)*a.projSpeed, vy:Math.sin(ang)*a.projSpeed,
-      ang, speed:a.projSpeed, r:a.projRadius, dmg:a.damage,
+      ang, speed:a.projSpeed, r:a.projRadius, dmg:a.damage*(e.dmgMul||1),
       range:a.range, traveled:0, owner:e, color:e.color,
       type:a.type, aoe:a.aoe||0, pierce:!!a.pierce, homing:!!a.homing,
       turn:a.turn||0, isSuper, hitSet:new Set(), trail:[]
@@ -556,6 +639,36 @@ function activateSuper(e){
   }
   if(e.isPlayer) Net.onSuper(e); // Phase 3 훅
 }
+function activateSkill(e){
+  if(!e.alive || !e.skillId) return;
+  const sk=SKILLS[e.skillId]; if(!sk || e.skillCd>0) return;
+  e.skillCd=sk.cd;
+  if(e.isPlayer) questAdd('skills_used',1);
+  if(sk.fn==="dash"){ const ang=Math.atan2(e.aim.y,e.aim.x);
+    moveWithWalls(e, e.x+Math.cos(ang)*sk.dist, e.y+Math.sin(ang)*sk.dist);
+    rings.push({x:e.x,y:e.y,r:6,maxR:e.radius+52,life:0.35,max:0.35,color:e.color,width:4});
+    for(let i=0;i<16;i++) particles.push(spark(e.x,e.y,e.color)); }
+  else if(sk.fn==="heal"){ e.hp=Math.min(e.maxHp,e.hp+sk.amount); float(e.x,e.y,"+"+sk.amount,"#3ddc97",1.2); }
+  else if(sk.fn==="shield"){ e.shield=Math.max(e.shield,sk.amount); e.shieldT=sk.dur; float(e.x,e.y,"방벽","#748ffc"); }
+  else if(sk.fn==="speed"){ e.speedMul=sk.mul; e.speedT=sk.dur; float(e.x,e.y,"질주!","#ffd23f"); }
+  else if(sk.fn==="rage"){ e.dmgMul=sk.mul; e.dmgT=sk.dur; float(e.x,e.y,"분노!","#ff6b6b"); }
+  else if(sk.fn==="quake"){ splashDamage(e,e.x,e.y,sk.radius,sk.dmg);
+    entities.forEach(t=>{ if(t!==e&&t.alive&&enemyOf(t,e)){ const dx=t.x-e.x,dy=t.y-e.y,dd=Math.hypot(dx,dy)||1;
+      if(dd<sk.radius) moveWithWalls(t, t.x+dx/dd*sk.knock, t.y+dy/dd*sk.knock); } });
+    rings.push({x:e.x,y:e.y,r:10,maxR:sk.radius,life:0.5,max:0.5,color:"#fff",width:8}); screenFlash=0.18; shake=Math.min(16,shake+8); }
+  else if(sk.fn==="mine"){ mines.push({x:e.x,y:e.y,team:e.team,owner:e,dmg:sk.dmg,radius:sk.radius,life:14,armed:0.5}); float(e.x,e.y,"지뢰 설치","#ffd43b"); }
+  else if(sk.fn==="cloak"){ e.cloakT=sk.dur; float(e.x,e.y,"은신","#b6c4e0"); }
+}
+function updateMines(dt){
+  for(let i=mines.length-1;i>=0;i--){ const mn=mines[i]; mn.life-=dt; if(mn.armed>0) mn.armed-=dt;
+    let boom=mn.life<=0;
+    if(mn.armed<=0){ for(const t of entities){ if(t.alive && t.team!==mn.team && Math.hypot(t.x-mn.x,t.y-mn.y)<mn.radius){ boom=true; break; } } }
+    if(boom){ splashDamage(mn.owner, mn.x, mn.y, mn.radius, mn.dmg);
+      rings.push({x:mn.x,y:mn.y,r:8,maxR:mn.radius+20,life:0.45,max:0.45,color:"#ffae42",width:7});
+      for(let k=0;k<18;k++) particles.push(spark(mn.x,mn.y,"#ffae42",true));
+      screenFlash=Math.max(screenFlash,0.18); shake=Math.min(16,shake+6); mines.splice(i,1); }
+  }
+}
 function splashDamage(src,x,y,radius,dmg){
   entities.forEach(t=>{ if(t!==src && t.alive && enemyOf(t,src) && Math.hypot(t.x-x,t.y-y)<radius+t.radius)
     damage(t, dmg, src); });
@@ -579,6 +692,7 @@ function damage(t, dmg, src, silent){
     rings.push({x:t.x,y:t.y,r:t.radius,maxR:t.radius+130,life:0.5,max:0.5,color:t.color,width:8});
     rings.push({x:t.x,y:t.y,r:t.radius,maxR:t.radius+80,life:0.4,max:0.4,color:"#fff",width:4});
     for(let i=0;i<36;i++) particles.push(spark(t.x,t.y,t.color,true));
+    if(src && src.isPlayer && t!==src) questAdd('takedowns',1);
     if(mode.respawn){
       if(src && enemyOf(src,t)){ teamScore[src.team]++; float(t.x,t.y,"격추 +1",TEAM_COLOR[src.team],1.4); }
       t.respawnT = 2.0; updateScoreboard(); checkTeamWin();
@@ -594,6 +708,7 @@ function checkWin(){
 }
 function endMatch(win){
   gameOver=true; running=false;
+  if(win) questAdd('wins',1);
   setTimeout(()=>{
     document.getElementById('hud').classList.add('hidden');
     const r=document.getElementById('result');
@@ -618,7 +733,7 @@ function updateBot(b, dt){
     let best=null,bd=1e9;
     entities.forEach(e=>{ if(enemyOf(e,b) && e.alive){
       const d=Math.hypot(e.x-b.x,e.y-b.y);
-      const hidden = inBush(e.x,e.y) && d>180; // 부쉬 은신
+      const hidden = (inBush(e.x,e.y)||e.cloakT>0) && d>180; // 부쉬/은신
       if(!hidden && d<bd){bd=d;best=e;} } });
     ai.targetId = best?entities.indexOf(best):null;
     ai.retarget = 0.4;
@@ -638,6 +753,7 @@ function updateBot(b, dt){
     if(d < b.cfg.attack.range && !lineBlocked(b.x,b.y,tgt.x,tgt.y)) tryFire(b);
     // 슈퍼
     if(b.superCharge>=b.superMax && d<b.cfg.attack.range*0.9 && Math.random()<0.02) activateSuper(b);
+    if(b.skillId && b.skillCd<=0 && Math.random()<0.015) activateSkill(b);
   } else {
     // 배회
     mx=Math.cos(ai.t*0.7); my=Math.sin(ai.t*0.5);
@@ -655,7 +771,8 @@ const aliveEntity = id => id!=null && entities[id] && entities[id].alive;
    9. MOVEMENT / AMMO
    ---------------------------------------------------------------- */
 function applyMove(e, dx, dy, dt){
-  const sp=e.cfg.speed;
+  const moving=(dx||dy); e.moving=!!moving; e.animPhase=(e.animPhase||0)+dt*(moving?11:3);
+  const sp=e.cfg.speed*(e.speedMul||1);
   moveWithWalls(e, e.x+dx*sp*dt, e.y+dy*sp*dt);
 }
 function updateAmmo(e, dt){
@@ -664,6 +781,10 @@ function updateAmmo(e, dt){
     if(e.reloadT>=e.cfg.reload){ e.reloadT=0; e.ammo++; } }
   if(e.shieldT>0){ e.shieldT-=dt; if(e.shieldT<=0) e.shield=0; }
   if(e.flash>0) e.flash-=dt;
+  if(e.skillCd>0) e.skillCd-=dt;
+  if(e.speedT>0){ e.speedT-=dt; if(e.speedT<=0) e.speedMul=1; }
+  if(e.dmgT>0){ e.dmgT-=dt; if(e.dmgT<=0) e.dmgMul=1; }
+  if(e.cloakT>0) e.cloakT-=dt;
 }
 
 /* ----------------------------------------------------------------
@@ -770,6 +891,26 @@ function render(){
     ctx.fillText("CORE",zone.x,zone.y+6); ctx.restore();
   }
 
+  // 지뢰
+  mines.forEach(mn=>{ const pulse=0.5+0.5*Math.sin(performance.now()/120);
+    ctx.globalAlpha=0.12; ctx.fillStyle=mn.team===player.team?"#3ddc97":"#ff5c8a";
+    ctx.beginPath();ctx.arc(mn.x,mn.y,mn.radius,0,7);ctx.fill(); ctx.globalAlpha=1;
+    ctx.fillStyle=mn.team===player.team?"#3ddc97":"#ff5c8a";
+    ctx.beginPath();ctx.arc(mn.x,mn.y,5+pulse*3,0,7);ctx.fill(); });
+
+  // 플레이어 조준 가이드(명확한 방향 표시)
+  if(player && player.alive){
+    const ang=Math.atan2(player.aim.y,player.aim.x), range=player.cfg.attack.range;
+    ctx.save(); ctx.translate(player.x,player.y); ctx.rotate(ang);
+    ctx.strokeStyle="rgba(255,255,255,.3)"; ctx.lineWidth=3; ctx.setLineDash([12,10]);
+    ctx.beginPath();ctx.moveTo(player.radius+6,0);ctx.lineTo(range-26,0);ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=player.color;
+    ctx.beginPath();ctx.moveTo(range,0);ctx.lineTo(range-26,-13);ctx.lineTo(range-26,13);ctx.closePath();ctx.fill();
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha=0.22; ctx.strokeStyle=player.color; ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(player.x,player.y,range,0,7);ctx.stroke(); ctx.restore();
+  }
+
   // 투사체 트레일 + 글로우(가산합성)
   ctx.save(); ctx.globalCompositeOperation="lighter";
   projectiles.forEach(p=>{
@@ -782,7 +923,7 @@ function render(){
 
   // 엔티티
   entities.forEach(e=>{ if(!e.alive)return;
-    const hidden = enemyOf(e,player) && inBush(e.x,e.y) && player.alive && Math.hypot(e.x-player.x,e.y-player.y)>180;
+    const hidden = enemyOf(e,player) && (inBush(e.x,e.y)||e.cloakT>0) && player.alive && Math.hypot(e.x-player.x,e.y-player.y)>180;
     drawEntity(e, hidden);
   });
 
@@ -828,27 +969,54 @@ function render(){
   drawMinimap();
   ctx.restore();
 }
-function drawEntity(e, hidden){
-  ctx.save();
+function shade(hex,amt){ let c=(hex||'#888').replace('#',''); if(c.length===3)c=c.split('').map(x=>x+x).join('');
+  const r=clamp(parseInt(c.slice(0,2),16)+amt,0,255), g=clamp(parseInt(c.slice(2,4),16)+amt,0,255), b=clamp(parseInt(c.slice(4,6),16)+amt,0,255);
+  return 'rgb('+r+','+g+','+b+')'; }
+function drawCharacter(e, hidden){
+  const R=e.radius, t=e.animPhase||0;
+  const bob = e.moving ? Math.abs(Math.sin(t))*2.4 : Math.sin(t*0.6)*0.7;
+  const swing = e.moving ? Math.sin(t)*R*0.34 : 0;
   const rb = e.recoil>0?e.recoil:0;
+  const ally = (e.team===player.team);
+  const outline = e.isPlayer?"#ffd23f":(ally?"#3ddc97":"#ff5c8a");
+  ctx.save();
   ctx.translate(e.x - e.aim.x*rb, e.y - e.aim.y*rb);
   ctx.globalAlpha = hidden?0.25:1;
   // 그림자
-  ctx.fillStyle="rgba(0,0,0,.3)"; ctx.beginPath();ctx.ellipse(0,e.radius*0.6,e.radius*0.9,e.radius*0.4,0,0,7);ctx.fill();
-  // 조준 방향
-  if(!hidden){ ctx.strokeStyle="rgba(255,255,255,.25)"; ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(e.aim.x*e.radius*1.6,e.aim.y*e.radius*1.6);ctx.stroke(); }
-  // 본체
-  ctx.fillStyle = e.flash>0?"#fff":e.color;
-  ctx.beginPath();ctx.arc(0,0,e.radius,0,7);ctx.fill();
-  const ally = (e.team===player.team);
-  ctx.strokeStyle = e.isPlayer?"#ffd23f":(ally?"#3ddc97":"#ff5c8a"); ctx.lineWidth = e.isPlayer?4:3;
-  ctx.beginPath();ctx.arc(0,0,e.radius,0,7);ctx.stroke();
-  // 보호막
-  if(e.shield>0){ ctx.strokeStyle="rgba(116,143,252,.9)";ctx.lineWidth=4;
-    ctx.beginPath();ctx.arc(0,0,e.radius+6,0,7);ctx.stroke(); }
+  ctx.fillStyle="rgba(0,0,0,.32)"; ctx.beginPath();ctx.ellipse(0,R*0.8,R*0.95,R*0.34,0,0,7);ctx.fill();
+  // 다리(워크 사이클)
+  ctx.strokeStyle=shade(e.color,-55); ctx.lineWidth=R*0.3; ctx.lineCap="round";
+  ctx.beginPath();ctx.moveTo(-R*0.28,R*0.28);ctx.lineTo(-R*0.28+swing,R*0.82);ctx.stroke();
+  ctx.beginPath();ctx.moveTo( R*0.28,R*0.28);ctx.lineTo( R*0.28-swing,R*0.82);ctx.stroke();
+  ctx.save(); ctx.translate(0,-bob);
+  // 몸통
+  ctx.fillStyle=e.flash>0?"#fff":e.color; roundRect(-R*0.62,-R*0.18,R*1.24,R*1.0,R*0.42); ctx.fill();
+  ctx.lineWidth=e.isPlayer?3:2; ctx.strokeStyle=outline; roundRect(-R*0.62,-R*0.18,R*1.24,R*1.0,R*0.42); ctx.stroke();
+  // 이니셜 엠블럼
+  ctx.fillStyle="rgba(255,255,255,.9)"; ctx.font="bold "+Math.round(R*0.68)+"px Jua,sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText((e.name&&e.name[0]!=='B'?e.name[0]:e.cfg.name[0]), 0, R*0.32);
+  // 머리
+  ctx.beginPath();ctx.arc(0,-R*0.5,R*0.52,0,7); ctx.fillStyle=e.flash>0?"#fff":shade(e.color,28); ctx.fill();
+  ctx.lineWidth=e.isPlayer?3:2; ctx.strokeStyle=outline; ctx.stroke();
+  // 눈(조준 방향)
+  const ex=e.aim.x*R*0.16, ey=-R*0.5+e.aim.y*R*0.1;
+  ctx.fillStyle="#14202e"; ctx.beginPath();ctx.arc(ex-R*0.16,ey,R*0.1,0,7);ctx.arc(ex+R*0.16,ey,R*0.1,0,7);ctx.fill();
+  // 무기 팔(조준 방향)
+  ctx.save(); ctx.rotate(Math.atan2(e.aim.y,e.aim.x));
+  ctx.strokeStyle=shade(e.color,-28); ctx.lineWidth=R*0.26; ctx.lineCap="round";
+  ctx.beginPath();ctx.moveTo(R*0.1,0);ctx.lineTo(R*0.95,0);ctx.stroke();
+  ctx.fillStyle="#2b3442"; roundRect(R*0.8,-R*0.2,R*0.6,R*0.4,3); ctx.fill();
+  ctx.fillStyle="#151b24"; ctx.fillRect(R*1.25,-R*0.09,R*0.32,R*0.18);
   ctx.restore();
-
+  // 보호막 / 은신
+  if(e.shield>0){ ctx.strokeStyle="rgba(116,143,252,.9)"; ctx.lineWidth=4; ctx.beginPath();ctx.arc(0,0,R+8,0,7);ctx.stroke(); }
+  if(e.cloakT>0){ ctx.strokeStyle="rgba(182,196,224,.5)"; ctx.lineWidth=2; ctx.beginPath();ctx.arc(0,0,R+4,0,7);ctx.stroke(); }
+  ctx.restore();
+  ctx.textBaseline="alphabetic";
+  ctx.restore();
+}
+function drawEntity(e, hidden){
+  drawCharacter(e, hidden);
   if(hidden) return;
   // 체력바 + 이름
   const w=e.radius*2.4, h=7, bx=e.x-w/2, by=e.y-e.radius-20;
@@ -896,24 +1064,32 @@ function loop(now){
     applyMove(player, input.move.x, input.move.y, dt);
     if(input.hasAim){ player.aim.x=input.aim.x; player.aim.y=input.aim.y; }
     if(input.firing) tryFire(player);
+    if(input.fireOnce){ tryFire(player); }
     if(input.superReq){ activateSuper(player); }
+    if(input.skillReq){ activateSkill(player); }
     updateAmmo(player, dt);
     Net.sendState(player); // Phase 3 훅 (위치/조준 동기화 지점)
   }
-  input.superReq=false;
+  input.superReq=false; input.skillReq=false; input.fireOnce=false;
 
   // 봇 업데이트
   entities.forEach(e=>{ if(e.isBot&&e.alive){ updateBot(e,dt); updateAmmo(e,dt); } });
 
   // 부활(점수 모드)
   if(mode.respawn){ entities.forEach(e=>{ if(!e.alive && e.respawnT>0){ e.respawnT-=dt; if(e.respawnT<=0) respawnEntity(e); } }); }
-  updateZone(dt); updateLink(dt);
+  updateZone(dt); updateLink(dt); updateMines(dt);
 
   updateProjectiles(dt); updateParticles(dt); updateFloaters(dt); updateFX(dt);
   if(mode.score) updateScoreboard();
 
-  // 슈퍼버튼 상태(모바일)
-  if(IS_TOUCH){ document.getElementById('superBtn').classList.toggle('ready', player.alive && player.superCharge>=player.superMax); }
+  // 슈퍼/스킬 버튼 상태(모바일) + 스킬 배지
+  if(IS_TOUCH){ document.getElementById('superBtn').classList.toggle('ready', player.alive && player.superCharge>=player.superMax);
+    const kb=document.getElementById('skillBtn'); if(kb){ const ready=player.alive && player.skillCd<=0;
+      kb.classList.toggle('ready',ready);
+      kb.querySelector('.ic').textContent = player.skillId&&SKILLS[player.skillId]?SKILLS[player.skillId].icon:"✨";
+      kb.querySelector('.cd').textContent = ready?"":Math.ceil(player.skillCd); } }
+  { const sb=document.getElementById('skillBadge');
+    if(sb){ const sk=player.skillId&&SKILLS[player.skillId]; sb.textContent = sk? (sk.icon+" "+(player.skillCd<=0?"준비":Math.ceil(player.skillCd)+"s")) : "스킬"; } }
 
   // 카메라
   cam.x += (player.x-cam.x)*Math.min(1,8*dt);
@@ -924,6 +1100,54 @@ function loop(now){
   render();
   requestAnimationFrame(loop);
 }
+
+/* ----------------------------------------------------------------
+   퀘스트 시스템 (일일/주간) — localStorage 저장, 날짜/주 변경 시 자동 리셋
+   ---------------------------------------------------------------- */
+const QDEF={
+  daily:[
+    {id:'d_play', metric:'matches_played', goal:3,  reward:30, name:'매치 3회 플레이'},
+    {id:'d_kill', metric:'takedowns',      goal:10, reward:40, name:'적 10명 격추'},
+    {id:'d_skill',metric:'skills_used',    goal:15, reward:30, name:'스킬 15회 사용'},
+  ],
+  weekly:[
+    {id:'w_play', metric:'matches_played', goal:15, reward:120, name:'매치 15회 플레이'},
+    {id:'w_kill', metric:'takedowns',      goal:60, reward:160, name:'적 60명 격추'},
+    {id:'w_win',  metric:'wins',           goal:5,  reward:200, name:'승리 5회'},
+  ]
+};
+let QS=null;
+function weekMonday(){ const t=new Date(); const d=(t.getDay()+6)%7; t.setDate(t.getDate()-d); return t.toISOString().slice(0,10); }
+function qLoad(){ try{ return JSON.parse(localStorage.getItem('brawlArenaQuests')||'null'); }catch(e){ return null; } }
+function qSave(){ try{ localStorage.setItem('brawlArenaQuests', JSON.stringify(QS)); }catch(e){} }
+function questInit(){
+  const today=new Date().toISOString().slice(0,10), wk=weekMonday();
+  QS=qLoad()||{day:today,week:wk,coins:0,daily:{},weekly:{},done:{daily:[],weekly:[]}};
+  QS.daily=QS.daily||{}; QS.weekly=QS.weekly||{}; QS.done=QS.done||{daily:[],weekly:[]};
+  QS.done.daily=QS.done.daily||[]; QS.done.weekly=QS.done.weekly||[];
+  if(QS.day!==today){ QS.day=today; QS.daily={}; QS.done.daily=[]; }
+  if(QS.week!==wk){ QS.week=wk; QS.weekly={}; QS.done.weekly=[]; }
+  qSave();
+}
+function checkQuests(tier){ QDEF[tier].forEach(q=>{ const prog=QS[tier][q.metric]||0;
+  if(prog>=q.goal && !QS.done[tier].includes(q.id)){ QS.done[tier].push(q.id); QS.coins+=q.reward;
+    showToast('✅ 퀘스트 완료: '+q.name+' (+'+q.reward+'💎)'); } }); }
+function questAdd(metric,amt){ if(!QS)return;
+  QS.daily[metric]=(QS.daily[metric]||0)+amt; QS.weekly[metric]=(QS.weekly[metric]||0)+amt;
+  checkQuests('daily'); checkQuests('weekly'); qSave(); }
+function buildQuests(){ questInit();
+  const wrap=document.getElementById('questBody'); if(!wrap)return;
+  const row=(tier)=>QDEF[tier].map(q=>{ const prog=Math.min(q.goal,QS[tier][q.metric]||0), done=QS.done[tier].includes(q.id);
+    const pct=Math.round(prog/q.goal*100);
+    return '<div class="qcard'+(done?' qdone':'')+'"><div class="qn">'+(done?'✅ ':'')+q.name+'</div>'
+      +'<div class="qbarwrap"><div class="qbar" style="width:'+pct+'%"></div></div>'
+      +'<div class="qmeta">'+prog+' / '+q.goal+'  ·  보상 '+q.reward+'💎</div></div>'; }).join('');
+  wrap.innerHTML='<div class="qsec">📅 일일 퀘스트</div>'+row('daily')+'<div class="qsec">🗓️ 주간 퀘스트</div>'+row('weekly');
+  document.getElementById('coinView').textContent='💎 '+QS.coins;
+}
+let toastT=null;
+function showToast(msg){ const el=document.getElementById('toast'); if(!el)return; el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2600); }
 
 /* ----------------------------------------------------------------
    14. NET STUB  (Phase 3 연동 인터페이스)
@@ -958,7 +1182,7 @@ function buildSelect(){
     }).join("");
     card.innerHTML=`<span class="ava" style="background:radial-gradient(circle at 50% 35%,#fff5,${c.color})"></span>
       <div class="nm">${c.name}</div><div class="role">${c.role}</div><div class="stats">${bars}</div>`;
-    card.onclick=()=>{ selectedChar=c.id; buildSelect(); showDetail(c); };
+    card.onclick=()=>{ selectedChar=c.id; buildSelect(); showDetail(c); buildSkillRow(); };
     grid.appendChild(card);
   });
   showDetail(byId(selectedChar));
@@ -971,13 +1195,24 @@ function showDetail(c){
      <div class="desc">${c.desc}<br><b style="color:var(--accent)">슈퍼:</b> ${c.super.desc}</div>`;
 }
 function attackLabel(t){return{single:"단발",spread:"산탄",rapid:"연사",lob:"포물선 폭탄",sniper:"저격 관통",homing:"유도탄"}[t]||t;}
+let equippedSkill="dash";
+function buildSkillRow(){
+  const c=byId(selectedChar); const ids=CHAR_SKILLS[c.id]||[];
+  if(!ids.includes(equippedSkill)) equippedSkill=ids[0];
+  const row=document.getElementById('skillRow'); if(!row) return; row.innerHTML="";
+  ids.forEach(id=>{ const sk=SKILLS[id]; const d=document.createElement('div');
+    d.className="skillCard"+(id===equippedSkill?" sel":"");
+    d.innerHTML='<div class="ic">'+sk.icon+'</div><div class="sn">'+sk.name+'</div><div class="sd">'+(SKILL_DESC[sk.fn]||"")+' · 쿨'+sk.cd+'s</div>';
+    d.onclick=()=>{ equippedSkill=id; buildSkillRow(); };
+    row.appendChild(d); });
+}
 
-function show(id){ ["menu","select","result"].forEach(x=>document.getElementById(x).classList.add('hidden'));
+function show(id){ ["menu","select","result","quests"].forEach(x=>document.getElementById(x).classList.add('hidden'));
   if(id)document.getElementById(id).classList.remove('hidden'); }
 
 document.getElementById('ctrlTip').innerHTML = IS_TOUCH
-  ? "📱 모바일: 좌측 조이스틱 <b>이동</b>, 우측 조이스틱 <b>조준·발사</b>, 가운데 버튼 <b>슈퍼</b>"
-  : "🖥️ PC: <span class='kbd'>W</span><span class='kbd'>A</span><span class='kbd'>S</span><span class='kbd'>D</span> 이동 · 마우스 조준 · <b>클릭</b> 발사 · <span class='kbd'>Q</span>/우클릭 슈퍼";
+  ? "📱 모바일: 좌 조이스틱 <b>이동</b> · 우 조이스틱 <b>드래그로 조준 → 손을 떼면 발사</b> · <b>SUPER</b>·<b>스킬(✨)</b> 버튼"
+  : "🖥️ PC: <span class='kbd'>W</span><span class='kbd'>A</span><span class='kbd'>S</span><span class='kbd'>D</span> 이동 · 마우스 조준 · <b>클릭</b> 발사 · <span class='kbd'>Q</span> 슈퍼 · <span class='kbd'>E</span> 스킬";
 
 let selectedMode = "showdown";
 function buildModeRow(){
@@ -992,13 +1227,16 @@ function buildModeRow(){
   document.getElementById('modeDesc').innerHTML = MODES[selectedMode].desc;
   document.getElementById('startGame').innerHTML = MODES[selectedMode].icon+" "+MODES[selectedMode].label+" 시작";
 }
-document.getElementById('toSelect').onclick=()=>{ buildSelect(); buildModeRow(); show('select'); };
+document.getElementById('toSelect').onclick=()=>{ buildSelect(); buildModeRow(); buildSkillRow(); show('select'); };
+document.getElementById('toQuests').onclick=()=>{ buildQuests(); show('quests'); };
+document.getElementById('questBack').onclick=()=>show('menu');
 document.getElementById('backMenu').onclick=()=>show('menu');
 document.getElementById('startGame').onclick=()=>{ show(null); startMatch(selectedChar, selectedMode); };
 document.getElementById('rematch').onclick=()=>{ show(null); startMatch(selectedChar, selectedMode); };
-document.getElementById('changeChar').onclick=()=>{ buildSelect(); buildModeRow(); show('select'); };
+document.getElementById('changeChar').onclick=()=>{ buildSelect(); buildModeRow(); buildSkillRow(); show('select'); };
 
-// 초기 화면
+// 초기화
+questInit();
 show('menu');
 </script>
 </body>
