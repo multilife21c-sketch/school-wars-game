@@ -257,6 +257,7 @@
   <div id="hud" class="hidden">
     <div class="topbar">
       <div class="badge alive" id="scoreBadge">생존 <b>1</b></div>
+      <div class="badge" id="timerBadge" style="color:#ffd23f">⏱️ 3:00</div>
       <div class="badge" id="charBadge">캐릭터</div>
       <div class="badge" id="skillBadge" style="color:#6fd3ff">스킬</div>
     </div>
@@ -761,6 +762,12 @@ const MODES = {
     desc:"<b>1:1 전용.</b> 부활전 + 중앙 코어존. 적 격추 1점, 코어존 5초 점령 시 보너스 1점. 먼저 3점!" },
   link:{ label:"링크 아레나 (2:2)", icon:"\u{1F517}", allies:1, respawn:true, score:true, target:7, link:true,
     desc:"<b>2:2 전용.</b> 팀원과 붙으면 둘 사이에 <b>전류 링크</b>가 생겨 닿는 적에게 지속 피해! 팀 7점 먼저!" },
+  goal:{ label:"골 러시 (축구 3:3)", icon:"\u26BD", team33:true, respawn:true, score:true, target:5, ball:true,
+    desc:"<b>3:3 축구.</b> 가운데 공을 밀거나 슛(공 근처 발사)으로 차서 <b>상대 골대</b>에 넣어라! 양쪽에 골대가 하나씩. 처치 시 잠깐 부활. 3분 내 더 많은 골!" },
+  wave:{ label:"웨이브 디펜스 (협동)", icon:"\u{1F47E}", wave:true, respawn:true, score:false,
+    desc:"<b>최대 3인 협동 생존.</b> 단계가 오를수록 강해지는 몬스터 군단을 막아라! <b>5단계</b>를 클리어하면 승리. 만렙 3인이 겨우 이기는 난이도. 전원 사망 시 패배." },
+  race:{ label:"장애물 레이스 (달리기)", icon:"\u{1F3C1}", count:8, race:true, respawn:false, score:false,
+    desc:"<b>최대 8인 장애물 경주!</b> 결승선까지 먼저! 길목엔 <b>몬스터·장애물</b>이 있고, <b>함정</b>을 밟으면 출발점으로 되돌아간다. 순위에 따라 트로피!" },
 };
 // 보스 전용 데이터
 const BOSS_CFG={ id:'boss', name:'마수', role:'보스', color:'#ff3b3b', speed:95, hp:62000, radius:58, reload:0.5, ammo:99,
@@ -771,8 +778,88 @@ function bossNova(b){ const N=20; for(let k=0;k<N;k++){ const ang=k/N*6.283;
       ang,speed:470,r:9,dmg:560,range:620,traveled:0,owner:b,color:'#ff6b6b',type:'single',aoe:0,pierce:false,homing:false,turn:0,isSuper:true,hitSet:new Set(),trail:[]}); }
   rings.push({x:b.x,y:b.y,r:10,maxR:300,life:0.6,max:0.6,color:'#ff3b3b',width:10});
   screenFlash=Math.max(screenFlash,0.2); shake=Math.min(16,shake+9); }
+
+/* ===== 웨이브 디펜스: 몬스터 정의 ===== */
+// 몬스터는 team:1. 종류별 baseHp/speed/공격 — 단계가 오를수록 스케일 증가.
+const MONSTERS = {
+  grunt:  { id:'grunt',  name:'그런트',  role:'몬스터', color:'#7bc96f', animal:'rabbit', radius:18, speed:120, hp:2600, reload:1.3, ammo:3,
+    attack:{type:'single', damage:240, range:420, projSpeed:560, projRadius:7, count:1, spread:0} },
+  brute:  { id:'brute',  name:'브루트',  role:'몬스터', color:'#c98a3a', animal:'bear',   radius:27, speed:96,  hp:7200, reload:1.7, ammo:2,
+    attack:{type:'spread', damage:300, range:300, projSpeed:560, projRadius:8, count:4, spread:0.5} },
+  spitter:{ id:'spitter',name:'스피터',  role:'몬스터', color:'#9b6cff', animal:'cat',    radius:19, speed:108, hp:3000, reload:1.1, ammo:4,
+    attack:{type:'lob', damage:420, range:520, projSpeed:480, projRadius:9, count:1, spread:0, aoe:70} },
+  runner: { id:'runner', name:'러너',    role:'몬스터', color:'#ff7a7a', animal:'cheetah',radius:16, speed:188, hp:1700, reload:1.0, ammo:5,
+    attack:{type:'rapid', damage:150, range:300, projSpeed:760, projRadius:5, count:1, spread:0.08} },
+};
+const WAVE_BOSS = { id:'wboss', name:'마수 군주', role:'보스', color:'#ff3b3b', animal:'rhino', radius:50, speed:92, hp:34000, reload:0.55, ammo:99,
+  attack:{type:'spread', damage:520, range:680, projSpeed:560, projRadius:11, count:6, spread:0.9},
+  super:{type:'nova', charge:999999, damage:1500, radius:240, desc:'대폭발'} };
+
+// 5단계 구성: [그런트, 브루트, 스피터, 러너, 보스수]. 단계가 오를수록 수/배율 급증.
+const WAVE_DEFS = [
+  { grunt:4,  brute:1, spitter:1, runner:1, boss:0, hpMul:0.85, dmgMul:0.95 }, // 1
+  { grunt:5,  brute:1, spitter:2, runner:2, boss:0, hpMul:1.05, dmgMul:1.1 },  // 2
+  { grunt:6,  brute:2, spitter:2, runner:3, boss:0, hpMul:1.25, dmgMul:1.25 }, // 3
+  { grunt:7,  brute:3, spitter:3, runner:3, boss:0, hpMul:1.5,  dmgMul:1.45 }, // 4
+  { grunt:5,  brute:2, spitter:2, runner:3, boss:1, hpMul:1.8,  dmgMul:1.65 }, // 5 (+보스)
+];
+const WAVE_MAX = WAVE_DEFS.length;
+
+function spawnMonster(mcfg, hpMul, dmgMul){
+  const W=WORLD.w, H=WORLD.h;
+  // 가장자리 랜덤 스폰
+  const side=(Math.random()*4)|0; let x,y;
+  if(side===0){ x=60+Math.random()*(W-120); y=70; }
+  else if(side===1){ x=60+Math.random()*(W-120); y=H-70; }
+  else if(side===2){ x=70; y=60+Math.random()*(H-120); }
+  else { x=W-70; y=60+Math.random()*(H-120); }
+  const m = makeEntity(mcfg, x, y, false, true, mcfg.name, 1);
+  m.maxHp = Math.round(mcfg.hp*hpMul); m.hp=m.maxHp;
+  m.isMonster=true; m.dmgMul=dmgMul;
+  const l=["dash","rage","quake"]; m.skillId = mcfg.id==='runner' ? 'dash' : null;
+  entities.push(m);
+  for(let k=0;k<10;k++) particles.push(spark(x,y,mcfg.color));
+  rings.push({x,y,r:6,maxR:m.radius+30,life:0.4,max:0.4,color:mcfg.color,width:4});
+  return m;
+}
+function startWave(n){
+  waveNum=n; const d=WAVE_DEFS[n-1]; if(!d) return;
+  const types=[['grunt',d.grunt],['brute',d.brute],['spitter',d.spitter],['runner',d.runner]];
+  types.forEach(([t,cnt])=>{ for(let i=0;i<cnt;i++) spawnMonster(MONSTERS[t], d.hpMul, d.dmgMul); });
+  if(d.boss){ for(let i=0;i<d.boss;i++){ const b=spawnMonster(WAVE_BOSS, d.hpMul, d.dmgMul); b.isBoss=true; b.bossT=4.5; } }
+  waveState='active';
+  showToast('👾 웨이브 '+n+'/'+WAVE_MAX+' 시작!'+(d.boss?' ⚠️ 보스 등장!':''));
+  screenFlash=Math.max(screenFlash,0.2);
+}
+function updateWave(dt){
+  if(!mode.wave) return;
+  // 팀0(플레이어+동료) 전멸 시 패배
+  const allies = entities.filter(e=>e.team===0);
+  if(allies.length && allies.every(e=>!e.alive && (e.respawnT<=0))){
+    // 부활 대기조차 없으면 패배 — 단, 부활 모드이므로 모두 동시에 죽고 부활 타이머도 끝난 경우만
+  }
+  if(!player.alive && !entities.some(e=>e.team===0 && e.alive)){ if(!gameOver) endMatch(false); return; }
+  if(waveState==='active'){
+    const monstersLeft = entities.some(e=>e.isMonster && e.alive);
+    if(!monstersLeft){
+      if(waveNum>=WAVE_MAX){ if(!gameOver) endMatch(true); return; }
+      waveState='break'; waveTimer=4.0;
+      matchTimer = MATCH_TIME; // 웨이브 클리어 시 제한시간 리필(웨이브당 3분)
+      showToast('✅ 웨이브 '+waveNum+' 클리어! 제한시간 리필 · 다음 단계 준비…');
+      // 보너스: 동료/플레이어 약간 회복
+      entities.forEach(e=>{ if(e.team===0&&e.alive){ e.hp=Math.min(e.maxHp,e.hp+e.maxHp*0.35); } });
+    }
+  } else if(waveState==='break'){
+    waveTimer-=dt; if(waveTimer<=0) startWave(waveNum+1);
+  }
+}
 const LINK_RANGE=320, LINK_DMG=1100, ZONE_R=130, ZONE_GOAL=5;
 let mode=MODES.showdown, teamScore=[0,0], zoneHold=[0,0], zone=null;
+// 스포츠/레이스 전용 상태
+let ball=null, goals=[], finishX=0, raceRank=[];
+// 시간제한 / 웨이브 / 함정
+const MATCH_TIME=180; // 3분
+let matchTimer=MATCH_TIME, waveNum=0, waveState='idle', waveTimer=0, traps=[], raceHazards=[];
 const TEAM_COLOR=["#ffd23f","#ff5c8a"];
 const enemyOf=(a,b)=>a.team!==b.team;
 
@@ -826,7 +913,7 @@ function makeEntity(cfg, x, y, isPlayer, isBot, name, team){
     hp:cfg.hp, maxHp:cfg.hp, ammo:cfg.ammo, maxAmmo:cfg.ammo, reloadT:0,
     fireCd:0, aim:{x:1,y:0}, alive:true, isPlayer, isBot,
     team:team||0, spawn:{x,y}, respawnT:0,
-    superCharge:0, superMax:cfg.super.charge, shield:0, shieldT:0,
+    superCharge:0, superMax:(cfg.super?cfg.super.charge:999999), shield:0, shieldT:0,
     aiState:{t:0, strafe:1, retarget:0, targetId:null}, flash:0, recoil:0,
     skillId:null, skillCd:0, speedMul:1, speedT:0, dmgMul:1, dmgT:0, cloakT:0, lvlDmg:1,
     animPhase:Math.random()*6, moving:false, invuln:0
@@ -836,7 +923,8 @@ function makeEntity(cfg, x, y, isPlayer, isBot, name, team){
 function startMatch(charId, modeKey){
   buildArena();
   entities=[]; projectiles=[]; particles=[]; floaters=[]; mines=[]; gameOver=false;
-  teamScore=[0,0]; zoneHold=[0,0];
+  teamScore=[0,0]; zoneHold=[0,0]; ball=null; goals=[]; finishX=0; raceRank=[];
+  matchTimer=MATCH_TIME; waveNum=0; waveState='idle'; waveTimer=0; traps=[]; raceHazards=[];
   mode = MODES[modeKey] || MODES.showdown;
   zone = mode.zone ? {x:WORLD.w*0.5, y:WORLD.h*0.5, r:ZONE_R} : null;
   const cfg = byId(charId);
@@ -868,10 +956,39 @@ function startMatch(charId, modeKey){
     entities.push(makeEntity(pick(), W*0.66, H*0.82, false,true,"ALLY", 0));
     entities.push(makeEntity(pick(), W*0.34, H*0.18, false,true,"FOE 1", 1));
     entities.push(makeEntity(pick(), W*0.66, H*0.18, false,true,"FOE 2", 1));
+  } else if(modeKey==='goal'){
+    // 3:3 축구 — 좌(아군 골대 보호) vs 우. 아군 골=우측, 적 골=좌측에 공 넣기
+    player = makeEntity(cfg, W*0.30, H*0.5, true, false, "YOU", 0); entities.push(player);
+    entities.push(makeEntity(pick(), W*0.22, H*0.34, false,true,"ALLY 1", 0));
+    entities.push(makeEntity(pick(), W*0.22, H*0.66, false,true,"ALLY 2", 0));
+    entities.push(makeEntity(pick(), W*0.78, H*0.34, false,true,"FOE 1", 1));
+    entities.push(makeEntity(pick(), W*0.78, H*0.50, false,true,"FOE 2", 1));
+    entities.push(makeEntity(pick(), W*0.78, H*0.66, false,true,"FOE 3", 1));
+    const gh=H*0.34;
+    // team0(나)는 우측 골대에 넣고, team1은 좌측 골대에 넣음
+    goals=[ {x:46, y:H*0.5, w:30, h:gh, team:0},               // 좌측 = 우리 골대(지켜야 함)
+            {x:W-46-30, y:H*0.5, w:30, h:gh, team:1} ];          // 우측 = 적 골대(여기 넣으면 내 득점)
+    ball={ x:W*0.5, y:H*0.5, vx:0, vy:0, r:20 };
+  } else if(modeKey==='wave'){
+    // 최대 3인 협동: 플레이어 + 동료 2명(team0) vs 몬스터 웨이브
+    player = makeEntity(cfg, W*0.5, H*0.55, true, false, "YOU", 0); entities.push(player);
+    entities.push(makeEntity(pick(), W*0.42, H*0.62, false,true,"ALLY 1", 0));
+    entities.push(makeEntity(pick(), W*0.58, H*0.62, false,true,"ALLY 2", 0));
+    // 동료를 만렙급으로 강화(협동 난이도 균형)
+    entities.forEach(e=>{ if(e.team===0 && e.isBot){ e.maxHp=Math.round(e.maxHp*1.27); e.hp=e.maxHp; e.lvlDmg=1.18; } });
+  } else if(modeKey==='race'){
+    // 8인 달리기 — 좌측 출발선에서 우측 결승선으로
+    finishX = W-120;
+    const lanes=(mode.count||8);
+    player = makeEntity(cfg, 120, H*0.5, true, false, "YOU", 0); entities.push(player);
+    for(let i=0;i<lanes-1;i++){ const y=H*(0.5 - (lanes-1)*0.045 + i*0.09 + 0.09);
+      entities.push(makeEntity(pick(), 120, Math.max(80,Math.min(H-80,y)), false,true,"BOT "+(i+1), i+1)); }
+    buildRaceTrack(W,H);
   }
 
   questAdd('matches_played',1);
   currentCharId=charId; matchStats={takedowns:0}; killStreak=0; multiKill=0; lastKillT=0;
+  matchPlayerCount = (modeKey==='showdown'||modeKey==='race') ? entities.filter(e=>!e.isBoss).length : 0; lastPlace=0;
   // 닉네임 + 레벨 보정(체력/공격)
   player.name = (PROF&&PROF.nick)||"YOU";
   player.maxHp = Math.round(cfg.hp*lvlHpMul(charId)); player.hp=player.maxHp; player.lvlDmg=lvlDmgMul(charId);
@@ -893,6 +1010,7 @@ function startMatch(charId, modeKey){
   // 시작 카운트다운 3,2,1,Start + 시작 2초 무적 보호막
   countdown = 3.999;
   player.invuln = 2.0; // 시작 2초간 피해 무효
+  if(mode.wave){ waveState='break'; waveTimer=4.0; } // 카운트다운 후 1웨이브 시작
   running=true; lastT=performance.now();
   document.getElementById('hud').classList.remove('hidden');
   document.getElementById('charBadge').textContent = mode.icon+" "+mode.label;
@@ -900,6 +1018,9 @@ function startMatch(charId, modeKey){
     mode.boss ? "동료와 함께 보스를 처치! 쓰러지면 패배" :
     mode.team55 ? ("팀을 도와 적을 처치! 팀 "+mode.target+"점") :
     mode===MODES.duel ? "코어존을 점령하거나 라이벌을 3회 격추!" :
+    mode.ball ? "공을 밀고 슛(공 근처 발사)으로 상대 골대에! 3분 내 더 많은 골!" :
+    mode.wave ? "동료와 협동! 5단계 몬스터 군단을 막아라. 전원 사망 시 패배!" :
+    mode.race ? "결승선까지! 함정(분홍 원) 밟으면 출발점으로. 몬스터·장애물 주의!" :
     mode===MODES.link ? "팀원과 붙어 전류 링크로 적을 지져라! 팀 7점!" :
     (IS_TOUCH ? "우 스틱 드래그로 조준(미조준 시 자동조준), 떼면 발사!" : "WASD 이동 · 마우스 조준(미조준 시 자동) · 클릭 발사 · Q 슈퍼 · E 스킬");
   updateScoreboard();
@@ -907,8 +1028,17 @@ function startMatch(charId, modeKey){
 }
 function updateScoreboard(){
   const b=document.getElementById('scoreBadge'); if(!b) return;
+  if(mode.wave){ const left=entities.filter(e=>e.isMonster&&e.alive).length;
+    b.innerHTML='👾 웨이브 <b>'+(waveNum||1)+'/'+WAVE_MAX+'</b> · 남은 적 <b style="color:#ff5c8a">'+left+'</b>'; return; }
   if(mode.boss){ const bs=entities.find(e=>e.isBoss); const pct=bs?Math.max(0,Math.round(bs.hp/bs.maxHp*100)):0; b.innerHTML='\u{1F432} BOSS <b style="color:#ff5c8a">'+pct+'%</b>'; return; }
   if(mode.score){ b.innerHTML = '<span style="color:'+TEAM_COLOR[0]+'">나 <b style="color:'+TEAM_COLOR[0]+'">'+teamScore[0]+'</b></span> : <b style="color:'+TEAM_COLOR[1]+'">'+teamScore[1]+'</b> 적 <span style="font-size:11px;color:var(--muted)">/'+mode.target+'</span>'; }
+  else if(mode.race){
+    const racers=entities.filter(e=>!e.isBoss);
+    const ahead = racers.filter(e=>e!==player && (e.finished || e.x>player.x)).length;
+    const myPlace = player.finished ? (raceRank.indexOf(player)+1) : ahead+1;
+    const pct = Math.max(0, Math.min(100, Math.round((player.x-120)/(finishX-120)*100)));
+    b.innerHTML='🏁 <b>'+myPlace+'위</b> <span style="font-size:11px;color:var(--muted)">/'+racers.length+' · '+pct+'%</span>';
+  }
   else { b.innerHTML = '생존 <b>'+entities.filter(e=>e.alive).length+'</b>'; }
 }
 function checkTeamWin(){ if(gameOver)return;
@@ -926,9 +1056,11 @@ function updateZone(dt){ if(!zone) return;
   const present=[false,false];
   entities.forEach(e=>{ if(e.alive && Math.hypot(e.x-zone.x,e.y-zone.y)<zone.r) present[e.team]=true; });
   let h=-1; if(present[0]&&!present[1])h=0; else if(present[1]&&!present[0])h=1;
+  const goalT = mode.hoop ? 2.2 : ZONE_GOAL;
   if(h>=0){ zoneHold[h]+=dt; zoneHold[1-h]=0;
-    if(zoneHold[h]>=ZONE_GOAL){ teamScore[h]++; zoneHold=[0,0];
-      float(zone.x,zone.y,"코어 점령 +1",TEAM_COLOR[h],1.5); screenFlash=0.2;
+    if(zoneHold[h]>=goalT){ teamScore[h]++; zoneHold=[0,0];
+      float(zone.x,zone.y, mode.hoop?"🏀 득점 +1":"코어 점령 +1",TEAM_COLOR[h],1.5); screenFlash=0.2;
+      if(mode.hoop && h===0 && SND.win) SND.combo&&SND.combo(2);
       rings.push({x:zone.x,y:zone.y,r:10,maxR:zone.r*1.7,life:0.6,max:0.6,color:TEAM_COLOR[h],width:8});
       checkTeamWin(); } }
   else { zoneHold=[0,0]; } }
@@ -942,6 +1074,107 @@ function updateLink(dt){ activeLinks=[]; if(!mode.link) return;
       damage(en, LINK_DMG*dt, src, true);
       if(Math.random()<0.25) particles.push(spark(en.x,en.y,"#9be8ff")); } });
   } }
+
+// ===== 축구: 공 물리 + 골 판정 =====
+function updateBall(dt){
+  if(!ball) return;
+  // 선수 충돌로 공 밀기
+  entities.forEach(e=>{ if(!e.alive) return;
+    const dx=ball.x-e.x, dy=ball.y-e.y, d=Math.hypot(dx,dy)||1;
+    if(d < ball.r+e.radius){
+      const nx=dx/d, ny=dy/d, push=160 + Math.hypot(e.vx||0,e.vy||0)*0.6;
+      ball.vx += nx*push*dt*6; ball.vy += ny*push*dt*6;
+      ball.x = e.x + nx*(ball.r+e.radius); ball.y = e.y + ny*(ball.r+e.radius);
+    } });
+  // 이동 + 마찰
+  ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+  ball.vx *= Math.pow(0.12,dt); ball.vy *= Math.pow(0.12,dt);
+  // 벽 반사(아레나 경계)
+  const m=ball.r+8;
+  if(ball.x<m){ ball.x=m; ball.vx=Math.abs(ball.vx)*0.6; }
+  if(ball.x>WORLD.w-m){ ball.x=WORLD.w-m; ball.vx=-Math.abs(ball.vx)*0.6; }
+  if(ball.y<m){ ball.y=m; ball.vy=Math.abs(ball.vy)*0.6; }
+  if(ball.y>WORLD.h-m){ ball.y=WORLD.h-m; ball.vy=-Math.abs(ball.vy)*0.6; }
+  // 골 판정
+  for(const g of goals){
+    if(ball.x>g.x-10 && ball.x<g.x+g.w+10 && Math.abs(ball.y-g.y)<g.h/2){
+      // g.team===1(우측 골대)에 넣으면 내(0) 득점, g.team===0(좌측)에 넣으면 적(1) 득점
+      const scorer = g.team===1 ? 0 : 1;
+      teamScore[scorer]++;
+      float(g.x,g.y, scorer===0?"⚽ 골! +1":"실점…", TEAM_COLOR[scorer],1.8); screenFlash=0.3; shake=Math.min(16,shake+8);
+      rings.push({x:g.x,y:g.y,r:10,maxR:200,life:0.7,max:0.7,color:TEAM_COLOR[scorer],width:9});
+      if(scorer===0 && SND.win) SND.combo&&SND.combo(3);
+      ball.x=WORLD.w*0.5; ball.y=WORLD.h*0.5; ball.vx=0; ball.vy=0;
+      checkTeamWin(); break;
+    }
+  }
+}
+// 발사로 공 차기(슛): 플레이어가 공 근처에서 발사하면 조준방향으로 강하게
+function shootBall(e){ if(!ball||!e.alive) return false;
+  if(Math.hypot(ball.x-e.x,ball.y-e.y) < ball.r+e.radius+70){
+    ball.vx += e.aim.x*900; ball.vy += e.aim.y*900;
+    if(e.isPlayer){ shake=Math.min(16,shake+3); float(ball.x,ball.y,"슛!","#fff",1.2); }
+    return true;
+  } return false;
+}
+
+// ===== 달리기 레이스: 트랙(장애물/몬스터/함정) =====
+function buildRaceTrack(W,H){
+  // 출발선(120) ~ 결승선(finishX) 사이에 장애물 벽, 함정, 몬스터 배치
+  const x0=300, x1=finishX-120;
+  // 장애물 벽(부술 수 없는 벽으로 추가) — 지그재그
+  for(let gx=x0; gx<x1; gx+=420){
+    const topH = 120 + Math.random()*180;
+    walls.push({x:gx, y:60, w:34, h:topH, hp:99999, maxHp:99999});
+    walls.push({x:gx+210, y:H-60-topH, w:34, h:topH, hp:99999, maxHp:99999});
+  }
+  // 함정(밟으면 출발점으로) — 길 중앙 곳곳
+  traps=[];
+  for(let gx=x0+140; gx<x1; gx+=300){
+    const ty = 120 + Math.random()*(H-240);
+    traps.push({x:gx, y:ty, r:42, t:0});
+  }
+  // 트랙 몬스터(레이스 방해): team1 몬스터, 그 자리에서 견제 사격
+  for(let gx=x0+260; gx<x1; gx+=480){
+    const ty = 120 + Math.random()*(H-240);
+    const m = makeEntity(MONSTERS.spitter, gx, ty, false, true, '방해꾼', 1);
+    m.maxHp=4200; m.hp=m.maxHp; m.isMonster=true; m.guard=true; m.guardX=gx; m.guardY=ty; m.skillId=null;
+    entities.push(m);
+  }
+}
+function resetToStart(e){
+  e.x=110; e.y=Math.max(80,Math.min(WORLD.h-80, e.spawn.y)); e.vx=0; e.vy=0;
+  e.speedMul=0.6; e.speedT=0.8; // 잠깐 둔화
+  rings.push({x:e.x,y:e.y,r:8,maxR:60,life:0.4,max:0.4,color:'#ff5c8a',width:5});
+  for(let k=0;k<14;k++) particles.push(spark(e.x,e.y,'#ff5c8a',true));
+  if(e.isPlayer){ screenFlash=Math.max(screenFlash,0.25); shake=Math.min(16,shake+6); float(e.x,e.y,'함정! 출발점으로','#ff5c8a',1.4); }
+}
+function updateTraps(dt){
+  if(!mode.race || !traps.length) return;
+  traps.forEach(tp=>{ tp.t+=dt;
+    entities.forEach(e=>{ if(e.alive && !e.finished && !e.isMonster){
+      if(Math.hypot(e.x-tp.x, e.y-tp.y) < tp.r*0.6 + e.radius) resetToStart(e);
+    }});
+  });
+}
+
+// ===== 달리기 레이스: 결승선 통과 순위 =====
+function updateRace(dt){
+  if(!mode.race) return;
+  entities.forEach(e=>{
+    if(e.finished || !e.alive) return;
+    if(e.x >= finishX){
+      e.finished=true; e.alive=true; // 완주(전투 무력화)
+      e.invuln=999; raceRank.push(e);
+      const place=raceRank.length;
+      const medal = place===1?"🥇":place===2?"🥈":place===3?"🥉":"#"+place;
+      float(e.x,e.y, medal+" "+place+"등!", e.isPlayer?"#ffd23f":TEAM_COLOR[0], 1.6);
+      if(e.isPlayer){ screenFlash=0.3; shake=Math.min(16,shake+6); }
+      if(e.isPlayer && !gameOver){ lastPlace=place; endMatch(place===1); }
+    }
+  });
+  // 모든 봇이 완주했는데 플레이어가 아직이면, 플레이어가 골인할 때까지 진행
+}
 
 /* ----------------------------------------------------------------
    6. FIRING
@@ -977,7 +1210,7 @@ function spawnAttack(e, a, isSuper){
   for(let i=0;i<4;i++) particles.push(spark(e.x,e.y,e.color));
 }
 function activateSuper(e){
-  if(e.superCharge < e.superMax || !e.alive) return;
+  if(!e.cfg.super || e.superCharge < e.superMax || !e.alive) return;
   e.superCharge=0;
   const s=e.cfg.super;
   if(e.isPlayer) SND.superFx();
@@ -1056,6 +1289,14 @@ function splashDamage(src,x,y,radius,dmg){
 function damage(t, dmg, src, silent){
   if(!t.alive) return;
   if(t.invuln>0){ t.flash=0.08; return; }
+  if(mode.race){ // 레이스: 처치 대신 둔화
+    if(t.finished) return;
+    t.flash=0.12; t.speedMul=0.45; t.speedT=Math.max(t.speedT||0,1.2);
+    if(!silent){ float(t.x,t.y,"둔화!", t.isPlayer?"#ff6b6b":"#fff",1.1);
+      if(t.isPlayer){ hurtV=Math.min(1,hurtV+0.3); } if(t.isPlayer||(src&&src.isPlayer))SND.hit(); }
+    if(src){ src.superCharge=Math.min(src.superMax, src.superCharge+dmg*0.3); }
+    return;
+  }
   if(t.shield>0){ const ab=Math.min(t.shield,dmg); t.shield-=ab; dmg-=ab; }
   if(dmg<=0){ t.flash=0.1; return; }
   t.hp-=dmg; t.flash=0.12;
@@ -1071,10 +1312,19 @@ function damage(t, dmg, src, silent){
     rings.push({x:t.x,y:t.y,r:t.radius,maxR:t.radius+80,life:0.4,max:0.4,color:"#fff",width:4});
     for(let i=0;i<36;i++) particles.push(spark(t.x,t.y,t.color,true));
     if(src && src.isPlayer && t!==src){ questAdd('takedowns',1); matchStats.takedowns++; onPlayerKill(); }
-    if(mode.respawn){
+    if(mode.wave){
+      if(t.isMonster){ updateScoreboard(); /* 몬스터는 부활 안 함 → 웨이브 클리어 판정 */ }
+      else { t.respawnT = 5.0; updateScoreboard(); } // team0는 5초 뒤 부활
+    } else if(mode.respawn){
       if(src && enemyOf(src,t)){ teamScore[src.team]++; float(t.x,t.y,"격추 +1",TEAM_COLOR[src.team],1.4); }
       t.respawnT = 2.0; updateScoreboard(); checkTeamWin();
-    } else { checkWin(); }
+    } else {
+      // 개인전(showdown): 죽은 순간 살아있던 인원 수 = 내 순위
+      if(matchPlayerCount>0 && t.isPlayer && !lastPlace){
+        lastPlace = entities.filter(e=>e.alive).length + 1; // 방금 죽은 본인 포함
+      }
+      checkWin();
+    }
   }
 }
 function checkWin(){
@@ -1086,7 +1336,7 @@ function checkWin(){
     else if(bs && !bs.alive){ endMatch(true); }
     return; }
   if(!player.alive){ endMatch(false); }
-  else if(alive.length===1 && alive[0]===player){ endMatch(true); }
+  else if(alive.length===1 && alive[0]===player){ if(matchPlayerCount>0) lastPlace=1; endMatch(true); }
 }
 function endMatch(win){
   gameOver=true; running=false;
@@ -1098,16 +1348,40 @@ function endMatch(win){
     const rt=document.getElementById('resultText');
     rt.textContent = win?"VICTORY":"DEFEAT";
     rt.className = "resultTitle "+(win?"win":"lose");
-    const base = mode.boss ? (win ? "보스 처치 성공! 🐲🏆" : "보스에게 쓰러졌습니다…")
-                 : mode.score ? (win ? ("팀 승리! "+teamScore[0]+" : "+teamScore[1]+" 🏆") : ("팀 패배… "+teamScore[0]+" : "+teamScore[1]))
-                 : (win ? "최후의 1인! 🏆" : "쓰러졌습니다. 다시 도전!");
+    let base;
+    if(mode.wave){ base = win ? ("👾 전 웨이브 격파! "+WAVE_MAX+"단계 클리어 🏆") : ("웨이브 "+(waveNum||1)+"/"+WAVE_MAX+" 에서 전멸…"); }
+    else if(mode.boss){ base = win ? "보스 처치 성공! 🐲🏆" : "보스에게 쓰러졌습니다…"; }
+    else if(mode.score){ base = win ? ("팀 승리! "+teamScore[0]+" : "+teamScore[1]+" 🏆") : ("팀 패배… "+teamScore[0]+" : "+teamScore[1]); }
+    else if(matchPlayerCount>0){ // 개인전: 순위 표시
+      const medal = lastPlace===1?"🥇":lastPlace===2?"🥈":lastPlace===3?"🥉":"#"+lastPlace;
+      base = (lastPlace===1?"최후의 1인! 🏆 ":"")+medal+" "+lastPlace+"등 / "+matchPlayerCount+"명";
+      rt.textContent = lastPlace===1 ? "VICTORY" : (lastPlace<=Math.ceil(matchPlayerCount/2) ? "TOP "+lastPlace : "DEFEAT");
+      rt.className = "resultTitle "+(lastTr>=0?"win":"lose");
+    }
+    else { base = win ? "승리! 🏆" : "쓰러졌습니다. 다시 도전!"; }
     const lv=levelOf(currentCharId);
+    const trCol = lastTr>=0 ? "#ffd23f" : "#ff6b6b";
     document.getElementById('resultSub').innerHTML = base
-      + '<br><span style="color:#6fd3ff">+'+lastXP+' XP</span> · 🏆 '+(lastTr>=0?'+':'')+lastTr
+      + '<br><span style="color:#6fd3ff">+'+lastXP+' XP</span> · <span style="color:'+trCol+'">🏆 '+(lastTr>=0?'+':'')+lastTr+'</span>'
       + ' · '+byId(currentCharId).name+' Lv.'+lv + (lastGold? ' · 🪙 +'+lastGold : '');
     r.classList.remove('hidden');
     Net.onMatchEnd(win); // Phase 3 훅
   }, 900);
+}
+function timeUp(){
+  if(gameOver) return;
+  showToast('⏱️ 시간 종료!');
+  if(mode.wave){ endMatch(false); return; }                 // 웨이브: 시간 내 미클리어 = 패배
+  if(mode.score){ endMatch(teamScore[0] >= teamScore[1]); return; } // 점수 많은 쪽(동점=승)
+  if(mode.race){                                            // 레이스: 진행도 순위로 등수 산정
+    const racers=entities.filter(e=>!e.isBoss && !e.isMonster);
+    racers.sort((a,b)=> (b.finished?1e9+ b.x:b.x) - (a.finished?1e9+a.x:a.x));
+    lastPlace = racers.indexOf(player)+1; endMatch(lastPlace===1); return;
+  }
+  if(matchPlayerCount>0){                                   // 개인전: 생존=남은 인원으로 순위
+    lastPlace = entities.filter(e=>e.alive).length>0 ? 1 : matchPlayerCount; endMatch(player.alive); return;
+  }
+  endMatch(player.alive);
 }
 
 /* ----------------------------------------------------------------
@@ -1150,6 +1424,38 @@ function updateBot(b, dt){
   if(mode.link){ const mate=entities.find(e=>e.alive && e.team===b.team && e!==b);
     if(mate){ const dx=mate.x-b.x, dy=mate.y-b.y, dd=Math.hypot(dx,dy);
       if(dd>LINK_RANGE*0.7){ mx+=dx/dd*0.7; my+=dy/dd*0.7; } } }
+  // 레이스: 가드 몬스터는 자리 지키며 견제, 주자 봇은 결승선으로 직진
+  if(mode.race){
+    if(b.guard){
+      // 제자리 부근 유지 + 가까운 주자 사격
+      const gx=b.guardX-b.x, gy=b.guardY-b.y, gd=Math.hypot(gx,gy);
+      if(gd>40){ mx=gx/gd; my=gy/gd; } else { mx=Math.cos(ai.t)*0.3; my=Math.sin(ai.t)*0.3; }
+      if(tgt && tgt.alive){ const dx=tgt.x-b.x,dy=tgt.y-b.y,d=Math.hypot(dx,dy)||1; b.aim.x=dx/d;b.aim.y=dy/d; if(d<b.cfg.attack.range && Math.random()<0.6)tryFire(b); }
+      const gm=Math.hypot(mx,my)||1; applyMove(b, mx/gm, my/gm, dt); return;
+    }
+    if(b.finished){ return; }
+    mx = 1.0; my = Math.sin(ai.t*1.6+ (b.team||0))*0.25;
+    if(tgt && tgt.alive && tgt.x>b.x && Math.random()<0.3){ const dx=tgt.x-b.x,dy=tgt.y-b.y,d=Math.hypot(dx,dy)||1; b.aim.x=dx/d;b.aim.y=dy/d; if(d<b.cfg.attack.range)tryFire(b); }
+    const rm=Math.hypot(mx,my)||1; applyMove(b, mx/rm, my/rm, dt); return;
+  }
+  // 웨이브: 몬스터는 가장 가까운 team0를 끈질기게 추격(카이팅 약함)
+  if(mode.wave && b.isMonster && tgt && tgt.alive){
+    const dx=tgt.x-b.x, dy=tgt.y-b.y, d=Math.hypot(dx,dy)||1;
+    b.aim.x=dx/d; b.aim.y=dy/d;
+    const pref=b.cfg.attack.range*0.6;
+    if(d>pref){ mx=dx/d; my=dy/d; } else { mx=-dy/d*ai.strafe*0.4; my=dx/d*ai.strafe*0.4; }
+    if(d<b.cfg.attack.range && !lineBlocked(b.x,b.y,tgt.x,tgt.y)) tryFire(b);
+    const wm=Math.hypot(mx,my)||1; applyMove(b, mx/wm, my/wm, dt); return;
+  }
+  // 골(축구): 공을 상대 골대 방향으로 몰기
+  if(mode.ball && ball){
+    const enemyGoal = goals.find(g=> (g.team===1) === (b.team===0)); // 내가 넣어야 할 골대
+    const bx=ball.x-b.x, by=ball.y-b.y, bd=Math.hypot(bx,by)||1;
+    if(bd>ball.r+b.radius+40){ mx=bx/bd; my=by/bd; }      // 공으로 접근
+    else if(enemyGoal){ const gx=(enemyGoal.x+enemyGoal.w/2)-b.x, gy=enemyGoal.y-b.y, gd=Math.hypot(gx,gy)||1;
+      b.aim.x=gx/gd; b.aim.y=gy/gd; mx=gx/gd; my=gy/gd;     // 공 끼고 골대로
+      if(Math.random()<0.5){ tryFire(b); shootBall(b); } }
+  }
   const m=Math.hypot(mx,my)||1;
   applyMove(b, mx/m, my/m, dt);
 }
@@ -1347,7 +1653,8 @@ function render(){
   // 코어존(듀얼)
   if(zone){
     let h=-1; if(zoneHold[0]>0)h=0; else if(zoneHold[1]>0)h=1;
-    const prog = h>=0 ? zoneHold[h]/ZONE_GOAL : 0;
+    const goalT = mode.hoop ? 2.2 : ZONE_GOAL;
+    const prog = h>=0 ? zoneHold[h]/goalT : 0;
     ctx.save();
     ctx.fillStyle = h>=0 ? TEAM_COLOR[h]+"22" : "rgba(255,255,255,.05)";
     ctx.beginPath();ctx.arc(zone.x,zone.y,zone.r,0,7);ctx.fill();
@@ -1355,8 +1662,49 @@ function render(){
     ctx.beginPath();ctx.arc(zone.x,zone.y,zone.r,0,7);ctx.stroke();
     if(prog>0){ ctx.lineWidth=7; ctx.strokeStyle=TEAM_COLOR[h];
       ctx.beginPath();ctx.arc(zone.x,zone.y,zone.r-6,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);ctx.stroke(); }
-    ctx.fillStyle="rgba(255,255,255,.5)"; ctx.font="bold 18px Bungee,sans-serif"; ctx.textAlign="center";
-    ctx.fillText("CORE",zone.x,zone.y+6); ctx.restore();
+    ctx.fillStyle="rgba(255,255,255,.55)"; ctx.font="bold 22px Bungee,sans-serif"; ctx.textAlign="center";
+    ctx.fillText(mode.hoop?"🏀":"CORE",zone.x,zone.y+(mode.hoop?8:6)); ctx.restore();
+  }
+
+  // 축구 골대 + 공
+  if(goals && goals.length){
+    goals.forEach(g=>{ const col = (g.team===1)?TEAM_COLOR[0]:TEAM_COLOR[1]; // 우측=내 득점(노랑), 좌측=내 골대(분홍)
+      ctx.save();
+      ctx.fillStyle="rgba(255,255,255,.10)"; ctx.fillRect(g.x,g.y-g.h/2,g.w,g.h);
+      ctx.lineWidth=5; ctx.strokeStyle=col; ctx.strokeRect(g.x,g.y-g.h/2,g.w,g.h);
+      // 골네트
+      ctx.strokeStyle=col+"66"; ctx.lineWidth=1.5;
+      for(let yy=-g.h/2; yy<=g.h/2; yy+=14){ ctx.beginPath();ctx.moveTo(g.x,g.y+yy);ctx.lineTo(g.x+g.w,g.y+yy);ctx.stroke(); }
+      ctx.restore(); });
+  }
+  if(ball){
+    ctx.save();
+    ctx.fillStyle="rgba(0,0,0,.25)"; ctx.beginPath();ctx.ellipse(ball.x,ball.y+ball.r*0.6,ball.r*0.9,ball.r*0.4,0,0,7);ctx.fill();
+    ctx.fillStyle="#fff"; ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,7);ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle="#222"; ctx.stroke();
+    // 축구공 무늬(오각형 몇 개)
+    ctx.fillStyle="#222";
+    for(let k=0;k<5;k++){ const a=k/5*6.283 + performance.now()/900; ctx.beginPath();ctx.arc(ball.x+Math.cos(a)*ball.r*0.5, ball.y+Math.sin(a)*ball.r*0.5, ball.r*0.18,0,7);ctx.fill(); }
+    ctx.fillStyle="#222"; ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r*0.22,0,7);ctx.fill();
+    ctx.restore();
+  }
+  // 레이스 결승선 + 출발선
+  if(mode.race){
+    ctx.save();
+    const drawStripe=(x,label,col)=>{
+      const sq=22; for(let y=0;y<WORLD.h;y+=sq){ ctx.fillStyle=((y/sq)|0)%2? "#fff":"#111"; ctx.fillRect(x,y,16,sq); }
+      ctx.fillStyle=col; ctx.font="bold 20px Bungee,sans-serif"; ctx.textAlign="center";
+      ctx.save(); ctx.translate(x+8,60); ctx.fillText(label,0,0); ctx.restore();
+    };
+    drawStripe(finishX, "FINISH", "#ffd23f");
+    drawStripe(60, "", "#fff");
+    // 함정(밟으면 출발점) — 분홍 위험 원
+    traps.forEach(tp=>{ const pulse=0.5+0.5*Math.sin(tp.t*5);
+      ctx.fillStyle="rgba(255,92,138,"+(0.12+pulse*0.12)+")"; ctx.beginPath();ctx.arc(tp.x,tp.y,tp.r,0,7);ctx.fill();
+      ctx.lineWidth=3; ctx.strokeStyle="#ff5c8a"; ctx.setLineDash([8,6]); ctx.beginPath();ctx.arc(tp.x,tp.y,tp.r,0,7);ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle="#ff5c8a"; ctx.font="bold 20px Jua,sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText("⚠️",tp.x,tp.y); ctx.textBaseline="alphabetic"; });
+    ctx.restore();
   }
 
   // 지뢰
@@ -1655,6 +2003,7 @@ function loop(now){
   if(hitstop>0){ hitstop-=dt; dt*=0.25; }
   window.__readPC();
   if(countdown>0){ countdown-=dt; if(countdown<0)countdown=0; }
+  else if(!gameOver){ matchTimer-=dt; if(matchTimer<=0){ matchTimer=0; timeUp(); } }
 
   // 플레이어 업데이트
   if(player.alive && !countdown){
@@ -1665,8 +2014,8 @@ function loop(now){
     // 능동 조준이면 그 방향, 아니면 발사 시 가장 가까운 적 자동 조준
     if(input.aimActive && input.hasAim){ player.aim.x=input.aim.x; player.aim.y=input.aim.y; }
     else if(wantFire){ const d=nearestEnemyDir(); if(d){ player.aim.x=d.x; player.aim.y=d.y; } }
-    if(input.firing) tryFire(player);
-    if(input.fireOnce){ tryFire(player); }
+    if(input.firing){ tryFire(player); if(mode.ball) shootBall(player); }
+    if(input.fireOnce){ tryFire(player); if(mode.ball) shootBall(player); }
     if(input.superReq){ activateSuper(player); }
     if(input.skillReq){ activateSkill(player); }
     updateAmmo(player, dt);
@@ -1681,11 +2030,13 @@ function loop(now){
   if(!countdown) entities.forEach(e=>{ if(e.isBot&&e.alive){ updateBot(e,dt); updateAmmo(e,dt); } });
 
   // 부활(점수 모드)
-  if(mode.respawn){ entities.forEach(e=>{ if(!e.alive && e.respawnT>0){ e.respawnT-=dt; if(e.respawnT<=0) respawnEntity(e); } }); }
-  updateZone(dt); updateLink(dt); updateMines(dt);
+  if(mode.respawn || mode.wave){ entities.forEach(e=>{ if(!e.alive && e.respawnT>0 && !e.isMonster){ e.respawnT-=dt; if(e.respawnT<=0) respawnEntity(e); } }); }
+  updateZone(dt); updateLink(dt); updateMines(dt); updateBall(dt); updateRace(dt); updateTraps(dt); updateWave(dt);
 
   updateProjectiles(dt); updateParticles(dt); updateFloaters(dt); updateFX(dt);
-  if(mode.score) updateScoreboard();
+  if(mode.score||mode.wave||mode.race) updateScoreboard();
+  { const tb=document.getElementById('timerBadge'); if(tb){ const tt=Math.max(0,Math.ceil(matchTimer));
+      const mm=(tt/60)|0, ss=tt%60; tb.textContent='⏱️ '+mm+':'+(ss<10?'0':'')+ss; tb.style.color = tt<=30?'#ff6b6b':'#ffd23f'; } }
 
   // 슈퍼/스킬 버튼 상태(모바일) + 스킬 배지
   if(IS_TOUCH){ document.getElementById('superBtn').classList.toggle('ready', player.alive && player.superCharge>=player.superMax);
@@ -1712,6 +2063,7 @@ function loop(now){
    ---------------------------------------------------------------- */
 const GAME_NAME="NEON STRIKERS";
 let PROF=null, currentCharId="vega", matchStats={takedowns:0}, lastXP=0, lastTr=0, lastGold=0, killStreak=0, multiKill=0, lastKillT=0;
+let matchPlayerCount=10, lastPlace=0; // 순위 기반 트로피용 (showdown)
 function pLoad(){ try{ return JSON.parse(localStorage.getItem('nsProfile')||'null'); }catch(e){ return null; } }
 function pSave(){ try{ localStorage.setItem('nsProfile', JSON.stringify(PROF)); }catch(e){} }
 function genId(){ return 'NS-'+Math.random().toString(36).slice(2,6).toUpperCase()+'-'+Date.now().toString(36).slice(-4).toUpperCase(); }
@@ -1868,15 +2220,36 @@ function onPlayerKill(){
     addGems(b); gainXP(currentCharId, killStreak*6);
     showKillBanner('🔥 '+killStreak+' 연속 처치!', '+'+b+'💎 · 폭주 중', '#ffd23f'); SND.streak(killStreak); }
 }
+function placementTrophies(place, total){
+  // 1등 +30 ~ 꼴등 -20 선형 분배 (예: 10명 → 1등 +30, 10등 -20)
+  if(total<=1) return 30;
+  const TOP=30, BOT=-20;
+  return Math.round(TOP - (place-1)/(total-1)*(TOP-BOT));
+}
 function onMatchResult(win){ if(!PROF)return;
   PROF.matches=(PROF.matches||0)+1; if(win)PROF.wins=(PROF.wins||0)+1;
   const tk=matchStats.takedowns||0; lastXP=Math.round((20+tk*8+(win?40:0))*((player&&player.matchXpMul)||1)); gainXP(currentCharId,lastXP);
-  lastTr=win?30:-15; addTrophies(lastTr);
-  if(win){ PROF.winStreak=(PROF.winStreak||0)+1; lastGold=30+((Math.random()*31)|0)+Math.min(120,(PROF.winStreak-1)*15);
-    PROF.gold=(PROF.gold||0)+lastGold; setTimeout(()=>showToast('🪙 골드 +'+lastGold+(PROF.winStreak>1?(' · '+PROF.winStreak+'연승!'):'')),150); }
-  else { PROF.winStreak=0; lastGold=0; }
+  // 트로피: 개인전(showdown)은 순위 기반, 그 외 모드는 승/패
+  if(matchPlayerCount>0){
+    if(!lastPlace) lastPlace = win?1:matchPlayerCount; // 안전망
+    lastTr = placementTrophies(lastPlace, matchPlayerCount);
+  } else {
+    lastTr = win?30:-20;
+  }
+  addTrophies(lastTr);
+  // 보상: 개인전은 순위 기반(트로피 +면 골드 지급), 그 외는 승/패
+  const goodResult = matchPlayerCount>0 ? (lastTr>0) : win;   // 트로피 획득 = 잘한 판
+  if(win){ PROF.winStreak=(PROF.winStreak||0)+1; } else { PROF.winStreak=0; }
+  if(goodResult){
+    // 순위가 높을수록 골드↑ (1등에 가까울수록 보너스)
+    const rankBonus = matchPlayerCount>0 ? Math.round((matchPlayerCount-lastPlace)/(matchPlayerCount-1||1)*60) : 0;
+    lastGold = 20+((Math.random()*21)|0) + rankBonus + (win?Math.min(120,(PROF.winStreak-1)*15):0);
+    PROF.gold=(PROF.gold||0)+lastGold;
+    const place = matchPlayerCount>0 ? (lastPlace+'등 · ') : '';
+    setTimeout(()=>showToast('🪙 골드 +'+lastGold+' · '+place+(win&&PROF.winStreak>1?(PROF.winStreak+'연승!'):'선전!')),150);
+  } else { lastGold=0; }
   pSave(); updateMenuProfile();
-  addGems(8+(win?20:0));
+  addGems(8 + (matchPlayerCount>0 ? Math.max(0,Math.round(lastTr*0.6)) : (win?20:0)));
   if(window.NS_FB && window.NS_FB.ready) window.NS_FB.submit(PROF.id, PROF.nick||'Player', PROF.trophies, PROF.wins||0); }
 function updateMenuProfile(){ const el=document.getElementById('profilePill'); if(!el||!PROF)return;
   const badge = PROF.authType==='google' ? '<span style="color:#4dabf7">🔵 Google</span>' : '<span style="color:var(--muted)">👤 게스트</span>';
@@ -2326,12 +2699,12 @@ applyControlMode();
      ※ 아래를 비워두면 게스트(기기 저장) 전용 + 내 기록만 표시됩니다.
      ============================================================ */
   const firebaseConfig = {
-    apiKey: "AIzaSyAuiCdlYwJ8x9dhmvYYFKpLZhwoOoKOrgc",
-    authDomain: "neon-strikers.firebaseapp.com",
-    projectId: "neon-strikers",
-    storageBucket: "neon-strikers.firebasestorage.app",
-    messagingSenderId: "24788647432",
-    appId: "1:24788647432:web:04d100149de5a5a0fa9bbd"
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: ""
   };
 
   if (firebaseConfig.apiKey) {
